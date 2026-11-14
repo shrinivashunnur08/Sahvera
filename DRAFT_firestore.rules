@@ -1,0 +1,679 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net: Default-deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Collection-group discovery so delegated Wardens/Viewers can find orgs they belong to
+    match /{path=**}/members/{userId} {
+      allow list: if isVerified() && resource.data.userId == request.auth.uid;
+    }
+
+    // Health connectivity probe document (read-only for signed-in users)
+    match /test/{docId} {
+      allow get: if isSignedIn();
+      allow list, write: if false;
+    }
+
+    // -------------------------------------------------------------------------
+    // Global Hardened Primitives
+    // -------------------------------------------------------------------------
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 2 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isOrgMember(orgId) {
+      return isVerified() && exists(/databases/$(database)/documents/orgs/$(orgId)/members/$(request.auth.uid));
+    }
+
+    function isOrgOwner(orgId) {
+      return isOrgMember(orgId) &&
+        get(/databases/$(database)/documents/orgs/$(orgId)/members/$(request.auth.uid)).data.role == 'owner';
+    }
+
+    function isOrgWriter(orgId) {
+      return isOrgMember(orgId) &&
+        get(/databases/$(database)/documents/orgs/$(orgId)/members/$(request.auth.uid)).data.role in ['owner', 'manager'];
+    }
+
+    function hasValidMemberUids(data) {
+      return !('memberUids' in data) || (
+        data.memberUids is list &&
+        data.memberUids.size() <= 20 &&
+        (data.memberUids.size() == 0 || data.memberUids[0] is string)
+      );
+    }
+
+    function canListOrgDoc(data) {
+      return isVerified() && (
+        data.ownerUid == request.auth.uid ||
+        ('memberUids' in data && data.memberUids is list && request.auth.uid in data.memberUids)
+      );
+    }
+
+    function matchesOrgOwner(orgId, ownerUid) {
+      return ownerUid == get(/databases/$(database)/documents/orgs/$(orgId)).data.ownerUid;
+    }
+
+    function hasValidBaseOrgFields(data, orgId) {
+      return isValidId(data.id) &&
+        data.orgId == orgId &&
+        isValidId(data.orgId) &&
+        isValidId(data.ownerUid) &&
+        hasValidMemberUids(data);
+    }
+
+    // -------------------------------------------------------------------------
+    // Entity Validation Blueprints
+    // -------------------------------------------------------------------------
+    function isValidOrganization(data, orgId) {
+      return data.keys().hasAll(['id', 'name', 'ownerUid', 'timezone', 'aiConsentEnabled', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'name', 'ownerUid', 'timezone', 'aiConsentEnabled', 'memberUids', 'createdAt', 'updatedAt']) &&
+        data.id == orgId &&
+        isValidId(data.id) &&
+        data.name is string && data.name.size() >= 2 && data.name.size() <= 120 &&
+        isValidId(data.ownerUid) &&
+        data.timezone is string && data.timezone.size() >= 3 && data.timezone.size() <= 64 &&
+        data.aiConsentEnabled is bool &&
+        hasValidMemberUids(data) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidMembership(data, orgId, userId) {
+      return data.keys().hasAll(['orgId', 'userId', 'role', 'displayName', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['orgId', 'userId', 'role', 'displayName', 'createdAt', 'updatedAt']) &&
+        data.orgId == orgId &&
+        isValidId(data.orgId) &&
+        data.userId == userId &&
+        isValidId(data.userId) &&
+        data.role in ['owner', 'manager', 'viewer'] &&
+        data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidProperty(data, orgId) {
+      return data.keys().hasAll(['id', 'orgId', 'ownerUid', 'name', 'city', 'locality', 'bedCapacity', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'orgId', 'ownerUid', 'name', 'city', 'locality', 'bedCapacity', 'memberUids', 'createdAt', 'updatedAt']) &&
+        hasValidBaseOrgFields(data, orgId) &&
+        data.name is string && data.name.size() >= 2 && data.name.size() <= 120 &&
+        data.city is string && data.city.size() >= 2 && data.city.size() <= 80 &&
+        data.locality is string && data.locality.size() >= 2 && data.locality.size() <= 120 &&
+        data.bedCapacity is int && data.bedCapacity >= 1 && data.bedCapacity <= 1000 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidRoom(data, orgId) {
+      return data.keys().hasAll(['id', 'orgId', 'ownerUid', 'propertyId', 'identifier', 'roomType', 'targetReadyIso', 'ownerName', 'readinessStage', 'vacantSinceIso', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'orgId', 'ownerUid', 'propertyId', 'identifier', 'roomType', 'targetReadyIso', 'ownerName', 'readinessStage', 'vacantSinceIso', 'memberUids', 'createdAt', 'updatedAt']) &&
+        hasValidBaseOrgFields(data, orgId) &&
+        isValidId(data.propertyId) &&
+        data.identifier is string && data.identifier.size() >= 1 && data.identifier.size() <= 80 &&
+        data.roomType in ['Single', 'Double', 'Triple', 'Studio'] &&
+        data.targetReadyIso is string && data.targetReadyIso.size() >= 10 && data.targetReadyIso.size() <= 64 &&
+        data.ownerName is string && data.ownerName.size() >= 1 && data.ownerName.size() <= 100 &&
+        data.readinessStage in ['in_progress', 'at_risk', 'ready_for_owner_review', 'verified_physical_handover'] &&
+        data.vacantSinceIso is string && data.vacantSinceIso.size() >= 10 && data.vacantSinceIso.size() <= 64 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidTask(data, orgId) {
+      return data.keys().hasAll(['id', 'orgId', 'ownerUid', 'propertyId', 'roomId', 'title', 'category', 'sequenceOrder', 'assignedVendor', 'assignmentState', 'status', 'providerConfirmed', 'ownerVerified', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'orgId', 'ownerUid', 'propertyId', 'roomId', 'title', 'category', 'sequenceOrder', 'assignedVendor', 'assignmentState', 'status', 'scheduledStartIso', 'scheduledEndIso', 'proposedWindowNote', 'providerConfirmed', 'ownerVerified', 'memberUids', 'createdAt', 'updatedAt']) &&
+        hasValidBaseOrgFields(data, orgId) &&
+        isValidId(data.propertyId) &&
+        isValidId(data.roomId) &&
+        data.title is string && data.title.size() >= 2 && data.title.size() <= 120 &&
+        data.category in ['painting', 'electrical', 'plumbing', 'cleaning', 'inspection', 'wifi', 'other'] &&
+        data.sequenceOrder is int && data.sequenceOrder >= 0 && data.sequenceOrder <= 100 &&
+        data.assignedVendor is string && data.assignedVendor.size() <= 100 &&
+        data.assignmentState in ['assigned', 'unassigned'] &&
+        data.status in ['pending', 'scheduled', 'at_risk', 'blocked', 'completed'] &&
+        (!('scheduledStartIso' in data) || data.scheduledStartIso == null || (data.scheduledStartIso is string && data.scheduledStartIso.size() <= 64)) &&
+        (!('scheduledEndIso' in data) || data.scheduledEndIso == null || (data.scheduledEndIso is string && data.scheduledEndIso.size() <= 64)) &&
+        (!('proposedWindowNote' in data) || data.proposedWindowNote == null || (data.proposedWindowNote is string && data.proposedWindowNote.size() <= 280)) &&
+        data.providerConfirmed is bool &&
+        data.ownerVerified is bool &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidTaskDependency(data, orgId) {
+      return data.keys().hasAll(['id', 'orgId', 'ownerUid', 'propertyId', 'roomId', 'fromTaskId', 'toTaskId', 'createdAt']) &&
+        data.keys().hasOnly(['id', 'orgId', 'ownerUid', 'propertyId', 'roomId', 'fromTaskId', 'toTaskId', 'memberUids', 'createdAt']) &&
+        hasValidBaseOrgFields(data, orgId) &&
+        isValidId(data.propertyId) &&
+        isValidId(data.roomId) &&
+        isValidId(data.fromTaskId) &&
+        isValidId(data.toTaskId) &&
+        data.fromTaskId != data.toTaskId &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidVendorUpdate(data, orgId) {
+      return data.keys().hasAll(['id', 'orgId', 'ownerUid', 'propertyId', 'roomId', 'taskId', 'inputMode', 'rawText', 'aiConsentGranted', 'createdAt']) &&
+        data.keys().hasOnly(['id', 'orgId', 'ownerUid', 'propertyId', 'roomId', 'taskId', 'inputMode', 'rawText', 'aiConsentGranted', 'memberUids', 'createdAt']) &&
+        hasValidBaseOrgFields(data, orgId) &&
+        isValidId(data.propertyId) &&
+        isValidId(data.roomId) &&
+        isValidId(data.taskId) &&
+        data.inputMode in ['text_paste', 'voice_transcript'] &&
+        data.rawText is string && data.rawText.size() >= 1 && data.rawText.size() <= 2000 &&
+        data.aiConsentGranted is bool &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidInterpretation(data, orgId) {
+      return data.keys().hasAll(['id', 'orgId', 'ownerUid', 'roomId', 'vendorUpdateId', 'source', 'eventKind', 'originalLanguage', 'summary', 'providerCommitment', 'uncertaintyReason', 'createdAt']) &&
+        data.keys().hasOnly(['id', 'orgId', 'ownerUid', 'roomId', 'vendorUpdateId', 'source', 'engineLabel', 'modelId', 'eventKind', 'originalLanguage', 'summary', 'evidenceSpans', 'reportedDelayMinutes', 'newDatetimeIso', 'costDeltaInr', 'providerCommitment', 'missingFacts', 'uncertaintyReason', 'handoverRiskExplanation', 'suggestedClarifications', 'suggestedDraftReply', 'diagnosticCategory', 'memberUids', 'createdAt']) &&
+        hasValidBaseOrgFields(data, orgId) &&
+        isValidId(data.roomId) &&
+        isValidId(data.vendorUpdateId) &&
+        data.source in ['offline_rules', 'real_gemini', 'manual_interpretation'] &&
+        (!('engineLabel' in data) || (data.engineLabel is string && data.engineLabel.size() <= 64)) &&
+        (!('modelId' in data) || (data.modelId is string && data.modelId.size() <= 64)) &&
+        data.eventKind in ['delay', 'cancellation', 'price_change', 'completion_claim', 'unclear'] &&
+        data.originalLanguage is string && data.originalLanguage.size() <= 64 &&
+        data.summary is string && data.summary.size() <= 400 &&
+        (!('evidenceSpans' in data) || (data.evidenceSpans is list && data.evidenceSpans.size() <= 6 && (data.evidenceSpans.size() == 0 || data.evidenceSpans[0] is string))) &&
+        (!('reportedDelayMinutes' in data) || data.reportedDelayMinutes == null || (data.reportedDelayMinutes is int && data.reportedDelayMinutes >= 0 && data.reportedDelayMinutes <= 43200)) &&
+        (!('newDatetimeIso' in data) || data.newDatetimeIso == null || (data.newDatetimeIso is string && data.newDatetimeIso.size() <= 64)) &&
+        (!('costDeltaInr' in data) || data.costDeltaInr == null || data.costDeltaInr is number) &&
+        data.providerCommitment in ['confirmed', 'tentative', 'unknown'] &&
+        (!('missingFacts' in data) || (data.missingFacts is list && data.missingFacts.size() <= 8 && (data.missingFacts.size() == 0 || data.missingFacts[0] is string))) &&
+        data.uncertaintyReason is string && data.uncertaintyReason.size() <= 400 &&
+        (!('handoverRiskExplanation' in data) || (data.handoverRiskExplanation is string && data.handoverRiskExplanation.size() <= 400)) &&
+        (!('suggestedClarifications' in data) || (data.suggestedClarifications is list && data.suggestedClarifications.size() <= 6 && (data.suggestedClarifications.size() == 0 || data.suggestedClarifications[0] is string))) &&
+        (!('suggestedDraftReply' in data) || (data.suggestedDraftReply is string && data.suggestedDraftReply.size() <= 500)) &&
+        (!('diagnosticCategory' in data) || (data.diagnosticCategory is string && data.diagnosticCategory.size() <= 64)) &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidImpactProposal(data, orgId) {
+      return data.keys().hasAll(['id', 'orgId', 'ownerUid', 'propertyId', 'roomId', 'interpretationId', 'sourceTaskId', 'affectedTaskCount', 'targetHandoverAtRisk', 'status', 'summary', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'orgId', 'ownerUid', 'propertyId', 'roomId', 'interpretationId', 'sourceTaskId', 'affectedTaskCount', 'affectedTasks', 'unresolvedAssumptions', 'clarificationQuestions', 'suggestedFollowUpDraft', 'targetHandoverAtRisk', 'status', 'summary', 'handoverRiskExplanation', 'memberUids', 'createdAt', 'updatedAt']) &&
+        hasValidBaseOrgFields(data, orgId) &&
+        isValidId(data.propertyId) &&
+        isValidId(data.roomId) &&
+        isValidId(data.interpretationId) &&
+        isValidId(data.sourceTaskId) &&
+        data.affectedTaskCount is int && data.affectedTaskCount >= 0 && data.affectedTaskCount <= 100 &&
+        (!('affectedTasks' in data) || (data.affectedTasks is list && data.affectedTasks.size() <= 50 && (data.affectedTasks.size() == 0 || data.affectedTasks[0] is map))) &&
+        (!('unresolvedAssumptions' in data) || (data.unresolvedAssumptions is list && data.unresolvedAssumptions.size() <= 12 && (data.unresolvedAssumptions.size() == 0 || data.unresolvedAssumptions[0] is string))) &&
+        (!('clarificationQuestions' in data) || (data.clarificationQuestions is list && data.clarificationQuestions.size() <= 12 && (data.clarificationQuestions.size() == 0 || data.clarificationQuestions[0] is string))) &&
+        (!('suggestedFollowUpDraft' in data) || (data.suggestedFollowUpDraft is string && data.suggestedFollowUpDraft.size() <= 1000)) &&
+        data.targetHandoverAtRisk is bool &&
+        data.status in ['pending_review', 'approved', 'rejected'] &&
+        data.summary is string && data.summary.size() <= 500 &&
+        (!('handoverRiskExplanation' in data) || (data.handoverRiskExplanation is string && data.handoverRiskExplanation.size() <= 600)) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidProviderConfirmation(data, orgId) {
+      return data.keys().hasAll(['id', 'orgId', 'ownerUid', 'roomId', 'taskId', 'vendorName', 'confirmedSlotIso', 'evidenceChannel', 'recordedByUid', 'createdAt']) &&
+        data.keys().hasOnly(['id', 'orgId', 'ownerUid', 'roomId', 'taskId', 'vendorName', 'confirmedSlotIso', 'evidenceChannel', 'recordedByUid', 'memberUids', 'createdAt']) &&
+        hasValidBaseOrgFields(data, orgId) &&
+        isValidId(data.roomId) &&
+        isValidId(data.taskId) &&
+        data.vendorName is string && data.vendorName.size() >= 1 && data.vendorName.size() <= 100 &&
+        data.confirmedSlotIso is string && data.confirmedSlotIso.size() >= 4 && data.confirmedSlotIso.size() <= 64 &&
+        data.evidenceChannel in ['call_verified', 'manual_whatsapp_copy', 'on_site'] &&
+        data.recordedByUid == request.auth.uid &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidOwnerApproval(data, orgId) {
+      return data.keys().hasAll(['id', 'orgId', 'ownerUid', 'roomId', 'proposalId', 'idempotencyKey', 'decision', 'rationale', 'approvedByUid', 'createdAt']) &&
+        data.keys().hasOnly(['id', 'orgId', 'ownerUid', 'roomId', 'proposalId', 'idempotencyKey', 'decision', 'rationale', 'previousValues', 'newValues', 'approvedByUid', 'memberUids', 'createdAt']) &&
+        hasValidBaseOrgFields(data, orgId) &&
+        isValidId(data.roomId) &&
+        isValidId(data.proposalId) &&
+        isValidId(data.idempotencyKey) &&
+        data.decision in ['approve_risk_flag', 'request_clarification', 'record_blocker', 'reject_proposal'] &&
+        data.rationale is string && data.rationale.size() >= 2 && data.rationale.size() <= 500 &&
+        (!('previousValues' in data) || data.previousValues is map) &&
+        (!('newValues' in data) || data.newValues is map) &&
+        data.approvedByUid == request.auth.uid &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidFollowUp(data, orgId) {
+      return data.keys().hasAll(['id', 'orgId', 'ownerUid', 'propertyId', 'roomId', 'messageDraft', 'dueIso', 'status', 'verificationState', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'orgId', 'ownerUid', 'propertyId', 'roomId', 'taskId', 'messageDraft', 'dueIso', 'status', 'verificationState', 'memberUids', 'createdAt', 'updatedAt']) &&
+        hasValidBaseOrgFields(data, orgId) &&
+        isValidId(data.propertyId) &&
+        isValidId(data.roomId) &&
+        (!('taskId' in data) || data.taskId == null || (data.taskId is string && data.taskId.size() <= 128)) &&
+        data.messageDraft is string && data.messageDraft.size() >= 2 && data.messageDraft.size() <= 1000 &&
+        data.dueIso is string && data.dueIso.size() >= 10 && data.dueIso.size() <= 64 &&
+        data.status in ['open', 'resolved'] &&
+        data.verificationState in ['unverified', 'verified'] &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidHandoverEvidence(data, orgId) {
+      return data.keys().hasAll(['id', 'orgId', 'ownerUid', 'roomId', 'safetyInspectionAck', 'ownerAttestation', 'guestAckState', 'evidenceNote', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'orgId', 'ownerUid', 'roomId', 'safetyInspectionAck', 'ownerAttestation', 'guestAckState', 'evidenceNote', 'photoInspectionVerdict', 'photoInspectionSummary', 'photoDetectedIssues', 'photoSafetyFlags', 'photoCount', 'conditionStage', 'baselineComparisonNote', 'memberUids', 'createdAt', 'updatedAt']) &&
+        hasValidBaseOrgFields(data, orgId) &&
+        isValidId(data.roomId) &&
+        data.safetyInspectionAck is bool &&
+        data.ownerAttestation is bool &&
+        data.guestAckState in ['not_requested', 'pending', 'acknowledged'] &&
+        data.evidenceNote is string && data.evidenceNote.size() <= 500 &&
+        (!('photoInspectionVerdict' in data) || data.photoInspectionVerdict in ['pass', 'issues_found', 'unclear']) &&
+        (!('photoInspectionSummary' in data) || (data.photoInspectionSummary is string && data.photoInspectionSummary.size() <= 300)) &&
+        (!('photoDetectedIssues' in data) || (data.photoDetectedIssues is list && data.photoDetectedIssues.size() <= 6 && (data.photoDetectedIssues.size() == 0 || data.photoDetectedIssues[0] is string))) &&
+        (!('photoSafetyFlags' in data) || (data.photoSafetyFlags is list && data.photoSafetyFlags.size() <= 6 && (data.photoSafetyFlags.size() == 0 || data.photoSafetyFlags[0] is string))) &&
+        (!('photoCount' in data) || (data.photoCount is int && data.photoCount >= 0 && data.photoCount <= 10)) &&
+        (!('conditionStage' in data) || data.conditionStage in ['move_in', 'move_out']) &&
+        (!('baselineComparisonNote' in data) || (data.baselineComparisonNote is string && data.baselineComparisonNote.size() <= 300)) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidAuditEvent(data, orgId) {
+      return data.keys().hasAll(['id', 'orgId', 'ownerUid', 'roomId', 'actorUid', 'actorLabel', 'action', 'provenance', 'hasSupportingEvidence', 'summary', 'createdAt']) &&
+        data.keys().hasOnly(['id', 'orgId', 'ownerUid', 'roomId', 'actorUid', 'actorLabel', 'action', 'provenance', 'hasSupportingEvidence', 'summary', 'memberUids', 'createdAt']) &&
+        hasValidBaseOrgFields(data, orgId) &&
+        isValidId(data.roomId) &&
+        data.actorUid == request.auth.uid &&
+        data.actorLabel is string && data.actorLabel.size() >= 1 && data.actorLabel.size() <= 120 &&
+        data.action is string && data.action.size() >= 2 && data.action.size() <= 120 &&
+        data.provenance in ['synthetic', 'manually_copied', 'self_reported', 'ai_interpreted', 'operator_verified'] &&
+        data.hasSupportingEvidence is bool &&
+        data.summary is string && data.summary.size() >= 2 && data.summary.size() <= 500 &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidPilotFeedback(data, orgId) {
+      return data.keys().hasAll(['id', 'orgId', 'ownerUid', 'partnerAlias', 'consentRecorded', 'dataClassification', 'baselineCoordinationHours', 'firstSessionMinutes', 'majorBlocker', 'willingnessToPayInr', 'createdAt']) &&
+        data.keys().hasOnly(['id', 'orgId', 'ownerUid', 'partnerAlias', 'consentRecorded', 'dataClassification', 'baselineCoordinationHours', 'firstSessionMinutes', 'majorBlocker', 'willingnessToPayInr', 'memberUids', 'createdAt']) &&
+        hasValidBaseOrgFields(data, orgId) &&
+        data.partnerAlias is string && data.partnerAlias.size() >= 2 && data.partnerAlias.size() <= 100 &&
+        data.consentRecorded is bool &&
+        data.dataClassification in ['anonymized_pilot_note', 'synthetic_example'] &&
+        data.baselineCoordinationHours is number && data.baselineCoordinationHours >= 0 && data.baselineCoordinationHours <= 500 &&
+        data.firstSessionMinutes is number && data.firstSessionMinutes >= 0 && data.firstSessionMinutes <= 500 &&
+        data.majorBlocker is string && data.majorBlocker.size() <= 400 &&
+        data.willingnessToPayInr is number && data.willingnessToPayInr >= 0 && data.willingnessToPayInr <= 1000000 &&
+        data.createdAt is timestamp;
+    }
+
+    // -------------------------------------------------------------------------
+    // Organization Root & Subcollections
+    // -------------------------------------------------------------------------
+    match /orgs/{orgId} {
+      allow get: if isVerified() && isValidId(orgId) && (
+        isOrgMember(orgId) ||
+        orgId == 'org_' + request.auth.uid ||
+        (resource != null && resource.data.ownerUid == request.auth.uid)
+      );
+      allow list: if isVerified() && (
+        resource.data.ownerUid == request.auth.uid ||
+        ('memberUids' in resource.data && resource.data.memberUids is list && request.auth.uid in resource.data.memberUids)
+      );
+      allow create: if isVerified() && isValidId(orgId) &&
+        isValidOrganization(incoming(), orgId) &&
+        incoming().ownerUid == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if isVerified() && isValidId(orgId) &&
+        isValidOrganization(incoming(), orgId) &&
+        isOrgOwner(orgId) &&
+        incoming().id == existing().id &&
+        incoming().ownerUid == existing().ownerUid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['name', 'timezone', 'aiConsentEnabled', 'memberUids', 'updatedAt']);
+      allow delete: if isVerified() && isValidId(orgId) && isOrgOwner(orgId);
+
+      match /members/{userId} {
+        allow get: if isVerified() && isValidId(orgId) && isValidId(userId) &&
+          (request.auth.uid == userId || isOrgMember(orgId));
+        allow list: if isVerified() && resource.data.orgId == orgId &&
+          (resource.data.userId == request.auth.uid || orgId == 'org_' + request.auth.uid);
+        allow create: if isVerified() && isValidId(orgId) && isValidId(userId) &&
+          isValidMembership(incoming(), orgId, userId) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          (
+            (request.auth.uid == userId && incoming().role == 'owner' &&
+              getAfter(/databases/$(database)/documents/orgs/$(orgId)).data.ownerUid == request.auth.uid) ||
+            (isOrgOwner(orgId) && incoming().role in ['manager', 'viewer'])
+          );
+        allow update: if isVerified() && isValidId(orgId) && isValidId(userId) &&
+          isValidMembership(incoming(), orgId, userId) &&
+          isOrgOwner(orgId) &&
+          incoming().orgId == existing().orgId &&
+          incoming().userId == existing().userId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['role', 'displayName', 'updatedAt']);
+        allow delete: if isVerified() && isValidId(orgId) && isValidId(userId) && isOrgOwner(orgId);
+      }
+
+      match /properties/{propertyId} {
+        allow get: if isVerified() && isValidId(orgId) && isValidId(propertyId) && isOrgMember(orgId);
+        allow list: if canListOrgDoc(resource.data);
+        allow create: if isVerified() && isValidId(orgId) && isValidId(propertyId) &&
+          isValidProperty(incoming(), orgId) &&
+          incoming().id == propertyId &&
+          incoming().ownerUid == request.auth.uid &&
+          (
+            isOrgOwner(orgId) ||
+            getAfter(/databases/$(database)/documents/orgs/$(orgId)/members/$(request.auth.uid)).data.role == 'owner'
+          ) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time;
+        allow update: if isVerified() && isValidId(orgId) && isValidId(propertyId) &&
+          isValidProperty(incoming(), orgId) &&
+          isOrgOwner(orgId) &&
+          incoming().id == existing().id &&
+          incoming().orgId == existing().orgId &&
+          incoming().ownerUid == existing().ownerUid &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['name', 'city', 'locality', 'bedCapacity', 'memberUids', 'updatedAt']);
+        allow delete: if isVerified() && isValidId(orgId) && isValidId(propertyId) && isOrgOwner(orgId);
+      }
+
+      match /rooms/{roomId} {
+        allow get: if isVerified() && isValidId(orgId) && isValidId(roomId) && isOrgMember(orgId);
+        allow list: if canListOrgDoc(resource.data);
+        allow create: if isVerified() && isValidId(orgId) && isValidId(roomId) &&
+          isValidRoom(incoming(), orgId) &&
+          incoming().id == roomId &&
+          isOrgWriter(orgId) &&
+          matchesOrgOwner(orgId, incoming().ownerUid) &&
+          incoming().readinessStage != 'verified_physical_handover' &&
+          exists(/databases/$(database)/documents/orgs/$(orgId)/properties/$(incoming().propertyId)) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time;
+        allow update: if isVerified() && isValidId(orgId) && isValidId(roomId) &&
+          isValidRoom(incoming(), orgId) &&
+          existing().readinessStage != 'verified_physical_handover' &&
+          incoming().id == existing().id &&
+          incoming().orgId == existing().orgId &&
+          incoming().ownerUid == existing().ownerUid &&
+          incoming().propertyId == existing().propertyId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          (
+            (isOrgOwner(orgId) &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['identifier', 'roomType', 'targetReadyIso', 'ownerName', 'readinessStage', 'memberUids', 'updatedAt'])) ||
+            (isOrgWriter(orgId) &&
+              incoming().readinessStage != 'verified_physical_handover' &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['identifier', 'roomType', 'targetReadyIso', 'ownerName', 'readinessStage', 'updatedAt']))
+          );
+        allow delete: if isVerified() && isValidId(orgId) && isValidId(roomId) && isOrgOwner(orgId);
+      }
+
+      match /tasks/{taskId} {
+        allow get: if isVerified() && isValidId(orgId) && isValidId(taskId) && isOrgMember(orgId);
+        allow list: if canListOrgDoc(resource.data);
+        allow create: if isVerified() && isValidId(orgId) && isValidId(taskId) &&
+          isValidTask(incoming(), orgId) &&
+          incoming().id == taskId &&
+          isOrgWriter(orgId) &&
+          matchesOrgOwner(orgId, incoming().ownerUid) &&
+          exists(/databases/$(database)/documents/orgs/$(orgId)/rooms/$(incoming().roomId)) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time;
+        allow update: if isVerified() && isValidId(orgId) && isValidId(taskId) &&
+          isValidTask(incoming(), orgId) &&
+          incoming().id == existing().id &&
+          incoming().orgId == existing().orgId &&
+          incoming().ownerUid == existing().ownerUid &&
+          incoming().propertyId == existing().propertyId &&
+          incoming().roomId == existing().roomId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          (
+            (isOrgOwner(orgId) &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['title', 'assignedVendor', 'assignmentState', 'status', 'scheduledStartIso', 'scheduledEndIso', 'proposedWindowNote', 'providerConfirmed', 'ownerVerified', 'memberUids', 'updatedAt'])) ||
+            (isOrgWriter(orgId) &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['title', 'assignedVendor', 'assignmentState', 'status', 'scheduledStartIso', 'scheduledEndIso', 'proposedWindowNote', 'providerConfirmed', 'ownerVerified', 'updatedAt']))
+          );
+        allow delete: if isVerified() && isValidId(orgId) && isValidId(taskId) && isOrgOwner(orgId);
+      }
+
+      match /dependencies/{depId} {
+        allow get: if isVerified() && isValidId(orgId) && isValidId(depId) && isOrgMember(orgId);
+        allow list: if canListOrgDoc(resource.data);
+        allow create: if isVerified() && isValidId(orgId) && isValidId(depId) &&
+          isValidTaskDependency(incoming(), orgId) &&
+          incoming().id == depId &&
+          isOrgWriter(orgId) &&
+          matchesOrgOwner(orgId, incoming().ownerUid) &&
+          exists(/databases/$(database)/documents/orgs/$(orgId)/tasks/$(incoming().fromTaskId)) &&
+          exists(/databases/$(database)/documents/orgs/$(orgId)/tasks/$(incoming().toTaskId)) &&
+          get(/databases/$(database)/documents/orgs/$(orgId)/tasks/$(incoming().fromTaskId)).data.propertyId == incoming().propertyId &&
+          get(/databases/$(database)/documents/orgs/$(orgId)/tasks/$(incoming().toTaskId)).data.propertyId == incoming().propertyId &&
+          incoming().createdAt == request.time;
+        allow update: if isVerified() && isValidId(orgId) && isValidId(depId) &&
+          isValidTaskDependency(incoming(), orgId) &&
+          isOrgOwner(orgId) &&
+          incoming().id == existing().id &&
+          incoming().orgId == existing().orgId &&
+          incoming().ownerUid == existing().ownerUid &&
+          incoming().propertyId == existing().propertyId &&
+          incoming().roomId == existing().roomId &&
+          incoming().fromTaskId == existing().fromTaskId &&
+          incoming().toTaskId == existing().toTaskId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['memberUids']);
+        allow delete: if isVerified() && isValidId(orgId) && isValidId(depId) && isOrgOwner(orgId);
+      }
+
+      match /vendorUpdates/{updateId} {
+        allow get: if isVerified() && isValidId(orgId) && isValidId(updateId) && isOrgMember(orgId);
+        allow list: if canListOrgDoc(resource.data);
+        allow create: if isVerified() && isValidId(orgId) && isValidId(updateId) &&
+          isValidVendorUpdate(incoming(), orgId) &&
+          incoming().id == updateId &&
+          isOrgWriter(orgId) &&
+          matchesOrgOwner(orgId, incoming().ownerUid) &&
+          incoming().createdAt == request.time;
+        allow update: if isVerified() && isValidId(orgId) && isValidId(updateId) &&
+          isOrgOwner(orgId) &&
+          hasValidMemberUids(incoming()) &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['memberUids']);
+        allow delete: if isVerified() && isValidId(orgId) && isValidId(updateId) && isOrgOwner(orgId);
+      }
+
+      match /interpretations/{interpId} {
+        allow get: if isVerified() && isValidId(orgId) && isValidId(interpId) && isOrgMember(orgId);
+        allow list: if canListOrgDoc(resource.data);
+        allow create: if isVerified() && isValidId(orgId) && isValidId(interpId) &&
+          isValidInterpretation(incoming(), orgId) &&
+          incoming().id == interpId &&
+          isOrgWriter(orgId) &&
+          matchesOrgOwner(orgId, incoming().ownerUid) &&
+          incoming().createdAt == request.time;
+        allow update: if isVerified() && isValidId(orgId) && isValidId(interpId) &&
+          isOrgOwner(orgId) &&
+          hasValidMemberUids(incoming()) &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['memberUids']);
+        allow delete: if isVerified() && isValidId(orgId) && isValidId(interpId) && isOrgOwner(orgId);
+      }
+
+      match /impactProposals/{proposalId} {
+        allow get: if isVerified() && isValidId(orgId) && isValidId(proposalId) && isOrgMember(orgId);
+        allow list: if canListOrgDoc(resource.data);
+        allow create: if isVerified() && isValidId(orgId) && isValidId(proposalId) &&
+          isValidImpactProposal(incoming(), orgId) &&
+          incoming().id == proposalId &&
+          incoming().status == 'pending_review' &&
+          isOrgWriter(orgId) &&
+          matchesOrgOwner(orgId, incoming().ownerUid) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time;
+        allow update: if isVerified() && isValidId(orgId) && isValidId(proposalId) &&
+          isValidImpactProposal(incoming(), orgId) &&
+          incoming().id == existing().id &&
+          incoming().orgId == existing().orgId &&
+          incoming().ownerUid == existing().ownerUid &&
+          incoming().propertyId == existing().propertyId &&
+          incoming().roomId == existing().roomId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          (
+            (isOrgOwner(orgId) && existing().status == 'pending_review' &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])) ||
+            (isOrgOwner(orgId) &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['memberUids', 'updatedAt']))
+          );
+        allow delete: if isVerified() && isValidId(orgId) && isValidId(proposalId) && isOrgOwner(orgId);
+      }
+
+      match /providerConfirmations/{confId} {
+        allow get: if isVerified() && isValidId(orgId) && isValidId(confId) && isOrgMember(orgId);
+        allow list: if canListOrgDoc(resource.data);
+        allow create: if isVerified() && isValidId(orgId) && isValidId(confId) &&
+          isValidProviderConfirmation(incoming(), orgId) &&
+          incoming().id == confId &&
+          isOrgWriter(orgId) &&
+          matchesOrgOwner(orgId, incoming().ownerUid) &&
+          incoming().createdAt == request.time;
+        allow update: if isVerified() && isValidId(orgId) && isValidId(confId) &&
+          isOrgOwner(orgId) &&
+          hasValidMemberUids(incoming()) &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['memberUids']);
+        allow delete: if isVerified() && isValidId(orgId) && isValidId(confId) && isOrgOwner(orgId);
+      }
+
+      match /ownerApprovals/{approvalId} {
+        allow get: if isVerified() && isValidId(orgId) && isValidId(approvalId) && isOrgMember(orgId);
+        allow list: if canListOrgDoc(resource.data);
+        // Server-enforced Maalik-only authority: Wardens (manager) cannot forge owner approvals
+        allow create: if isVerified() && isValidId(orgId) && isValidId(approvalId) &&
+          isValidOwnerApproval(incoming(), orgId) &&
+          incoming().id == approvalId &&
+          isOrgOwner(orgId) &&
+          matchesOrgOwner(orgId, incoming().ownerUid) &&
+          incoming().createdAt == request.time;
+        allow update: if isVerified() && isValidId(orgId) && isValidId(approvalId) &&
+          isOrgOwner(orgId) &&
+          hasValidMemberUids(incoming()) &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['memberUids']);
+        allow delete: if isVerified() && isValidId(orgId) && isValidId(approvalId) && isOrgOwner(orgId);
+      }
+
+      match /followUps/{followUpId} {
+        allow get: if isVerified() && isValidId(orgId) && isValidId(followUpId) && isOrgMember(orgId);
+        allow list: if canListOrgDoc(resource.data);
+        allow create: if isVerified() && isValidId(orgId) && isValidId(followUpId) &&
+          isValidFollowUp(incoming(), orgId) &&
+          incoming().id == followUpId &&
+          isOrgWriter(orgId) &&
+          matchesOrgOwner(orgId, incoming().ownerUid) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time;
+        allow update: if isVerified() && isValidId(orgId) && isValidId(followUpId) &&
+          isValidFollowUp(incoming(), orgId) &&
+          incoming().id == existing().id &&
+          incoming().orgId == existing().orgId &&
+          incoming().ownerUid == existing().ownerUid &&
+          incoming().propertyId == existing().propertyId &&
+          incoming().roomId == existing().roomId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          (
+            (isOrgOwner(orgId) &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['messageDraft', 'status', 'verificationState', 'memberUids', 'updatedAt'])) ||
+            (isOrgWriter(orgId) &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['messageDraft', 'status', 'verificationState', 'updatedAt']))
+          );
+        allow delete: if isVerified() && isValidId(orgId) && isValidId(followUpId) && isOrgOwner(orgId);
+      }
+
+      match /handoverEvidence/{evidenceId} {
+        allow get: if isVerified() && isValidId(orgId) && isValidId(evidenceId) && isOrgMember(orgId);
+        allow list: if canListOrgDoc(resource.data);
+        allow create: if isVerified() && isValidId(orgId) && isValidId(evidenceId) &&
+          isValidHandoverEvidence(incoming(), orgId) &&
+          incoming().id == evidenceId &&
+          matchesOrgOwner(orgId, incoming().ownerUid) &&
+          (
+            isOrgOwner(orgId) ||
+            (isOrgWriter(orgId) && incoming().ownerAttestation == false)
+          ) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time;
+        allow update: if isVerified() && isValidId(orgId) && isValidId(evidenceId) &&
+          isValidHandoverEvidence(incoming(), orgId) &&
+          incoming().id == existing().id &&
+          incoming().orgId == existing().orgId &&
+          incoming().ownerUid == existing().ownerUid &&
+          incoming().roomId == existing().roomId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          (
+            (isOrgOwner(orgId) &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['safetyInspectionAck', 'ownerAttestation', 'guestAckState', 'evidenceNote', 'photoInspectionVerdict', 'photoInspectionSummary', 'photoDetectedIssues', 'photoSafetyFlags', 'photoCount', 'conditionStage', 'baselineComparisonNote', 'memberUids', 'updatedAt'])) ||
+            (isOrgWriter(orgId) &&
+              incoming().ownerAttestation == existing().ownerAttestation &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['safetyInspectionAck', 'guestAckState', 'evidenceNote', 'photoInspectionVerdict', 'photoInspectionSummary', 'photoDetectedIssues', 'photoSafetyFlags', 'photoCount', 'conditionStage', 'baselineComparisonNote', 'updatedAt']))
+          );
+        allow delete: if isVerified() && isValidId(orgId) && isValidId(evidenceId) && isOrgOwner(orgId);
+      }
+
+      match /auditEvents/{eventId} {
+        allow get: if isVerified() && isValidId(orgId) && isValidId(eventId) && isOrgMember(orgId);
+        allow list: if canListOrgDoc(resource.data);
+        allow create: if isVerified() && isValidId(orgId) && isValidId(eventId) &&
+          isValidAuditEvent(incoming(), orgId) &&
+          incoming().id == eventId &&
+          isOrgWriter(orgId) &&
+          matchesOrgOwner(orgId, incoming().ownerUid) &&
+          incoming().createdAt == request.time;
+        allow update: if isVerified() && isValidId(orgId) && isValidId(eventId) &&
+          isOrgOwner(orgId) &&
+          hasValidMemberUids(incoming()) &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['memberUids']);
+        allow delete: if false;
+      }
+
+      match /pilotFeedback/{feedbackId} {
+        allow get: if isVerified() && isValidId(orgId) && isValidId(feedbackId) && isOrgMember(orgId);
+        allow list: if canListOrgDoc(resource.data);
+        allow create: if isVerified() && isValidId(orgId) && isValidId(feedbackId) &&
+          isValidPilotFeedback(incoming(), orgId) &&
+          incoming().id == feedbackId &&
+          isOrgWriter(orgId) &&
+          matchesOrgOwner(orgId, incoming().ownerUid) &&
+          incoming().createdAt == request.time;
+        allow update: if isVerified() && isValidId(orgId) && isValidId(feedbackId) &&
+          isOrgOwner(orgId) &&
+          hasValidMemberUids(incoming()) &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['memberUids']);
+        allow delete: if isVerified() && isValidId(orgId) && isValidId(feedbackId) && isOrgOwner(orgId);
+      }
+    }
+  }
+}

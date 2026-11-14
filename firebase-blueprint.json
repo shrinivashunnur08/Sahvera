@@ -1,0 +1,360 @@
+{
+  "entities": {
+    "Organization": {
+      "title": "Organization",
+      "description": "Independent PG/hostel operator organization boundary.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "ownerUid": { "type": "string", "minLength": 4, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "timezone": { "type": "string", "minLength": 3, "maxLength": 64 },
+        "aiConsentEnabled": { "type": "boolean" },
+        "memberUids": { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "ownerUid", "timezone", "aiConsentEnabled", "createdAt", "updatedAt"]
+    },
+    "Membership": {
+      "title": "Membership",
+      "description": "Role-based organization membership record.",
+      "type": "object",
+      "properties": {
+        "orgId": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userId": { "type": "string", "minLength": 4, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "role": { "type": "string", "enum": ["owner", "manager", "viewer"] },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["orgId", "userId", "role", "displayName", "createdAt", "updatedAt"]
+    },
+    "Property": {
+      "title": "Property",
+      "description": "PG, hostel, or co-living building managed by an organization.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "orgId": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerUid": { "type": "string", "minLength": 4, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "city": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "locality": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "bedCapacity": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "orgId", "ownerUid", "name", "city", "locality", "bedCapacity", "createdAt", "updatedAt"]
+    },
+    "Room": {
+      "title": "Room",
+      "description": "Vacant or turnover room tracked toward verified physical handover.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "orgId": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerUid": { "type": "string", "minLength": 4, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "propertyId": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "identifier": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "roomType": { "type": "string", "enum": ["Single", "Double", "Triple", "Studio"] },
+        "targetReadyIso": { "type": "string", "minLength": 10, "maxLength": 64 },
+        "ownerName": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "readinessStage": { "type": "string", "enum": ["in_progress", "at_risk", "ready_for_owner_review", "verified_physical_handover"] },
+        "vacantSinceIso": { "type": "string", "minLength": 10, "maxLength": 64 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "orgId", "ownerUid", "propertyId", "identifier", "roomType", "targetReadyIso", "ownerName", "readinessStage", "vacantSinceIso", "createdAt", "updatedAt"]
+    },
+    "Task": {
+      "title": "Task",
+      "description": "Ordered room preparation job inside a room's dependency DAG.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "orgId": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerUid": { "type": "string", "minLength": 4, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "propertyId": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "roomId": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "category": { "type": "string", "enum": ["painting", "electrical", "plumbing", "cleaning", "inspection", "wifi", "other"] },
+        "sequenceOrder": { "type": "integer" },
+        "assignedVendor": { "type": "string", "maxLength": 100 },
+        "assignmentState": { "type": "string", "enum": ["assigned", "unassigned"] },
+        "status": { "type": "string", "enum": ["pending", "scheduled", "at_risk", "blocked", "completed"] },
+        "scheduledStartIso": { "type": "string", "maxLength": 64 },
+        "scheduledEndIso": { "type": "string", "maxLength": 64 },
+        "proposedWindowNote": { "type": "string", "maxLength": 280 },
+        "providerConfirmed": { "type": "boolean" },
+        "ownerVerified": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "orgId", "ownerUid", "propertyId", "roomId", "title", "category", "sequenceOrder", "assignedVendor", "assignmentState", "status", "providerConfirmed", "ownerVerified", "createdAt", "updatedAt"]
+    },
+    "TaskDependency": {
+      "title": "TaskDependency",
+      "description": "Directed acyclic edge from prerequisite task to dependent task within one property.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "orgId": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerUid": { "type": "string", "minLength": 4, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "propertyId": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "roomId": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "fromTaskId": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "toTaskId": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "orgId", "ownerUid", "propertyId", "roomId", "fromTaskId", "toTaskId", "createdAt"]
+    },
+    "VendorUpdate": {
+      "title": "VendorUpdate",
+      "description": "Manually pasted vendor message or transcribed voice note intake.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "orgId": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerUid": { "type": "string", "minLength": 4, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "propertyId": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "roomId": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "taskId": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "inputMode": { "type": "string", "enum": ["text_paste", "voice_transcript"] },
+        "rawText": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "aiConsentGranted": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "orgId", "ownerUid", "propertyId", "roomId", "taskId", "inputMode", "rawText", "aiConsentGranted", "createdAt"]
+    },
+    "Interpretation": {
+      "title": "Interpretation",
+      "description": "Offline deterministic or validated Real Gemini structured interpretation of a vendor update.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "orgId": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerUid": { "type": "string", "minLength": 4, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "roomId": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "vendorUpdateId": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "source": { "type": "string", "enum": ["offline_rules", "real_gemini", "manual_interpretation"] },
+        "eventKind": { "type": "string", "enum": ["delay", "cancellation", "price_change", "completion_claim", "unclear"] },
+        "originalLanguage": { "type": "string", "maxLength": 64 },
+        "summary": { "type": "string", "maxLength": 400 },
+        "reportedDelayMinutes": { "type": "integer" },
+        "newDatetimeIso": { "type": "string", "maxLength": 64 },
+        "costDeltaInr": { "type": "number" },
+        "providerCommitment": { "type": "string", "enum": ["confirmed", "tentative", "unknown"] },
+        "uncertaintyReason": { "type": "string", "maxLength": 400 },
+        "handoverRiskExplanation": { "type": "string", "maxLength": 400 },
+        "suggestedClarifications": { "type": "array", "items": { "type": "string" } },
+        "suggestedDraftReply": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "orgId", "ownerUid", "roomId", "vendorUpdateId", "source", "eventKind", "originalLanguage", "summary", "providerCommitment", "uncertaintyReason", "createdAt"]
+    },
+    "ImpactProposal": {
+      "title": "ImpactProposal",
+      "description": "Computed candidate downstream risk without mutating booked schedules.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "orgId": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerUid": { "type": "string", "minLength": 4, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "propertyId": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "roomId": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "interpretationId": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "sourceTaskId": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "affectedTaskCount": { "type": "integer" },
+        "targetHandoverAtRisk": { "type": "boolean" },
+        "status": { "type": "string", "enum": ["pending_review", "approved", "rejected"] },
+        "summary": { "type": "string", "maxLength": 500 },
+        "handoverRiskExplanation": { "type": "string", "maxLength": 600 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "orgId", "ownerUid", "propertyId", "roomId", "interpretationId", "sourceTaskId", "affectedTaskCount", "targetHandoverAtRisk", "status", "summary", "createdAt", "updatedAt"]
+    },
+    "ProviderConfirmation": {
+      "title": "ProviderConfirmation",
+      "description": "Explicit provider availability/slot confirmation recorded separately from owner sign-off.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "orgId": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerUid": { "type": "string", "minLength": 4, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "roomId": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "taskId": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "vendorName": { "type": "string", "maxLength": 100 },
+        "confirmedSlotIso": { "type": "string", "maxLength": 64 },
+        "evidenceChannel": { "type": "string", "enum": ["call_verified", "manual_whatsapp_copy", "on_site"] },
+        "recordedByUid": { "type": "string", "minLength": 4, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "orgId", "ownerUid", "roomId", "taskId", "vendorName", "confirmedSlotIso", "evidenceChannel", "recordedByUid", "createdAt"]
+    },
+    "OwnerApproval": {
+      "title": "OwnerApproval",
+      "description": "Idempotent human approval decision linking proposal to auditable outcome.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "orgId": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerUid": { "type": "string", "minLength": 4, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "roomId": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "proposalId": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "idempotencyKey": { "type": "string", "minLength": 6, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "decision": { "type": "string", "enum": ["approve_risk_flag", "request_clarification", "record_blocker", "reject_proposal"] },
+        "rationale": { "type": "string", "minLength": 2, "maxLength": 500 },
+        "approvedByUid": { "type": "string", "minLength": 4, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "orgId", "ownerUid", "roomId", "proposalId", "idempotencyKey", "decision", "rationale", "approvedByUid", "createdAt"]
+    },
+    "FollowUp": {
+      "title": "FollowUp",
+      "description": "Actionable operator follow-up item appearing in Today queue.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "orgId": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerUid": { "type": "string", "minLength": 4, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "propertyId": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "roomId": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "taskId": { "type": "string", "maxLength": 128 },
+        "messageDraft": { "type": "string", "minLength": 2, "maxLength": 1000 },
+        "dueIso": { "type": "string", "minLength": 10, "maxLength": 64 },
+        "status": { "type": "string", "enum": ["open", "resolved"] },
+        "verificationState": { "type": "string", "enum": ["unverified", "verified"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "orgId", "ownerUid", "propertyId", "roomId", "messageDraft", "dueIso", "status", "verificationState", "createdAt", "updatedAt"]
+    },
+    "HandoverEvidence": {
+      "title": "HandoverEvidence",
+      "description": "Structured readiness and physical handover sign-off record.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "orgId": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerUid": { "type": "string", "minLength": 4, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "roomId": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "safetyInspectionAck": { "type": "boolean" },
+        "ownerAttestation": { "type": "boolean" },
+        "guestAckState": { "type": "string", "enum": ["not_requested", "pending", "acknowledged"] },
+        "evidenceNote": { "type": "string", "maxLength": 500 },
+        "photoInspectionVerdict": { "type": "string", "enum": ["pass", "issues_found", "unclear"] },
+        "photoInspectionSummary": { "type": "string", "maxLength": 300 },
+        "photoDetectedIssues": { "type": "array", "items": { "type": "string" } },
+        "photoSafetyFlags": { "type": "array", "items": { "type": "string" } },
+        "photoCount": { "type": "integer" },
+        "conditionStage": { "type": "string", "enum": ["move_in", "move_out"] },
+        "baselineComparisonNote": { "type": "string", "maxLength": 300 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "orgId", "ownerUid", "roomId", "safetyInspectionAck", "ownerAttestation", "guestAckState", "evidenceNote", "createdAt", "updatedAt"]
+    },
+    "AuditEvent": {
+      "title": "AuditEvent",
+      "description": "Immutable provenance-tagged audit log entry.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "orgId": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerUid": { "type": "string", "minLength": 4, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "roomId": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "actorUid": { "type": "string", "minLength": 2, "maxLength": 128 },
+        "actorLabel": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "action": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "provenance": { "type": "string", "enum": ["synthetic", "manually_copied", "self_reported", "ai_interpreted", "operator_verified"] },
+        "hasSupportingEvidence": { "type": "boolean" },
+        "summary": { "type": "string", "minLength": 2, "maxLength": 500 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "orgId", "ownerUid", "roomId", "actorUid", "actorLabel", "action", "provenance", "hasSupportingEvidence", "summary", "createdAt"]
+    },
+    "PilotFeedback": {
+      "title": "PilotFeedback",
+      "description": "Privacy-safe design partner interview and willingness-to-pay note.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "orgId": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerUid": { "type": "string", "minLength": 4, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "partnerAlias": { "type": "string", "minLength": 2, "maxLength": 100 },
+        "consentRecorded": { "type": "boolean" },
+        "dataClassification": { "type": "string", "enum": ["anonymized_pilot_note", "synthetic_example"] },
+        "baselineCoordinationHours": { "type": "number" },
+        "firstSessionMinutes": { "type": "number" },
+        "majorBlocker": { "type": "string", "maxLength": 400 },
+        "willingnessToPayInr": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "orgId", "ownerUid", "partnerAlias", "consentRecorded", "dataClassification", "baselineCoordinationHours", "firstSessionMinutes", "majorBlocker", "willingnessToPayInr", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/orgs/{orgId}": {
+      "schema": { "$ref": "#/entities/Organization" },
+      "description": "Organization tenant root document."
+    },
+    "/orgs/{orgId}/members/{userId}": {
+      "schema": { "$ref": "#/entities/Membership" },
+      "description": "Member roles inside an organization."
+    },
+    "/orgs/{orgId}/properties/{propertyId}": {
+      "schema": { "$ref": "#/entities/Property" },
+      "description": "PG/co-living properties owned by the organization."
+    },
+    "/orgs/{orgId}/rooms/{roomId}": {
+      "schema": { "$ref": "#/entities/Room" },
+      "description": "Turnover rooms tracked within the organization."
+    },
+    "/orgs/{orgId}/tasks/{taskId}": {
+      "schema": { "$ref": "#/entities/Task" },
+      "description": "Room preparation tasks within the organization."
+    },
+    "/orgs/{orgId}/dependencies/{depId}": {
+      "schema": { "$ref": "#/entities/TaskDependency" },
+      "description": "Task dependency edges within a single property/room."
+    },
+    "/orgs/{orgId}/vendorUpdates/{updateId}": {
+      "schema": { "$ref": "#/entities/VendorUpdate" },
+      "description": "Vendor text/voice intake messages."
+    },
+    "/orgs/{orgId}/interpretations/{interpId}": {
+      "schema": { "$ref": "#/entities/Interpretation" },
+      "description": "Structured interpretations of vendor updates."
+    },
+    "/orgs/{orgId}/impactProposals/{proposalId}": {
+      "schema": { "$ref": "#/entities/ImpactProposal" },
+      "description": "Proposed downstream impact assessments."
+    },
+    "/orgs/{orgId}/providerConfirmations/{confId}": {
+      "schema": { "$ref": "#/entities/ProviderConfirmation" },
+      "description": "Provider-specific slot confirmations."
+    },
+    "/orgs/{orgId}/ownerApprovals/{approvalId}": {
+      "schema": { "$ref": "#/entities/OwnerApproval" },
+      "description": "Idempotent operator approvals."
+    },
+    "/orgs/{orgId}/followUps/{followUpId}": {
+      "schema": { "$ref": "#/entities/FollowUp" },
+      "description": "Saved operator follow-up items."
+    },
+    "/orgs/{orgId}/handoverEvidence/{evidenceId}": {
+      "schema": { "$ref": "#/entities/HandoverEvidence" },
+      "description": "Physical handover evidence and attestation records."
+    },
+    "/orgs/{orgId}/auditEvents/{eventId}": {
+      "schema": { "$ref": "#/entities/AuditEvent" },
+      "description": "Append-only provenance audit trail."
+    },
+    "/orgs/{orgId}/pilotFeedback/{feedbackId}": {
+      "schema": { "$ref": "#/entities/PilotFeedback" },
+      "description": "Privacy-safe pilot operator interview notes."
+    }
+  }
+}

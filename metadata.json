@@ -1,0 +1,6 @@
+{
+  "name": "Sahvera — Room Ready, With Proof",
+  "description": "Pre-move-in room readiness, vendor dependency coordination, and evidence-backed handover sign-off for independent PG and co-living operators.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
